@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWR Simulation Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide-static@latest"></script>
+    <style>
+        /* Custom styles if needed */
+        body {
+            font-family: 'Inter', sans-serif; /* Ensure Inter font is used */
+        }
+        .chart-container {
+            position: relative;
+            height: 250px; /* Adjust height as needed */
+            width: 100%;
+        }
+        /* Style for safety limit lines */
+        .chartjs-annotation-line {
+            border-color: red !important;
+            border-width: 1px !important;
+            border-dash: [6, 6] !important; /* Dashed line */
+        }
+        .chartjs-annotation-label {
+            background-color: rgba(255, 0, 0, 0.5) !important;
+            color: white !important;
+            font-size: 10px !important;
+            padding: 2px 4px !important;
+            border-radius: 3px !important;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 text-center text-blue-700">PWR Plant Simulation Dashboard</h1>
+
+        <div class="bg-white p-4 rounded-lg shadow-md mb-6 flex flex-wrap items-center justify-center gap-4">
+            <button id="startSimButton" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-150 ease-in-out flex items-center gap-2">
+                <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/play.svg" class="w-5 h-5" alt="Play"/> Start Simulation
+            </button>
+            <button id="stopSimButton" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-150 ease-in-out flex items-center gap-2" disabled>
+                 <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/stop-circle.svg" class="w-5 h-5" alt="Stop"/> Stop Simulation
+            </button>
+            <div class="flex items-center gap-2">
+                 <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/loader.svg" class="w-5 h-5 animate-spin hidden" id="loadingIndicator" alt="Loading"/>
+                 <span id="simStatus" class="text-gray-600 font-medium">Status: Idle</span>
+            </div>
+             <div class="flex items-center gap-2">
+                 <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/clock.svg" class="w-5 h-5" alt="Time"/>
+                 <span id="simTimeDisplay" class="text-gray-600 font-medium">Time: 0.00 s</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-3 text-blue-600 border-b pb-2">Reactor Core</h2>
+                <p class="text-lg">Power: <span id="reactorPower" class="font-bold text-green-700">---</span> MWth</p>
+                <p>Fuel Temp: <span id="fuelTemp" class="font-bold">---</span> °C</p>
+                <p>Coolant Temp: <span id="coolantTemp" class="font-bold">---</span> °C</p>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-3 text-purple-600 border-b pb-2">Turbine/Generator</h2>
+                <p class="text-lg">Speed: <span id="turbineSpeed" class="font-bold text-purple-700">---</span> RPM</p>
+                <p>Valve Pos: <span id="valvePosition" class="font-bold">---</span> %</p>
+                <p>Mech. Power: <span id="mechPower" class="font-bold">---</span> MW</p>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold mb-3 text-red-600 border-b pb-2">Grid Interface</h2>
+                <p class="text-lg">Frequency: <span id="gridFrequency" class="font-bold text-red-700">---</span> Hz</p>
+                <p>Deviation: <span id="freqDeviation" class="font-bold">---</span> Hz</p>
+                <p>Load Demand: <span id="elecLoad" class="font-bold">---</span> %</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                <h3 class="text-lg font-semibold mb-2 text-center">Reactor Dynamics</h3>
+                <div class="chart-container">
+                    <canvas id="reactorChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                <h3 class="text-lg font-semibold mb-2 text-center">Turbine Control</h3>
+                <div class="chart-container">
+                    <canvas id="turbineChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                 <h3 class="text-lg font-semibold mb-2 text-center">Grid Stability</h3>
+                <div class="chart-container">
+                    <canvas id="gridChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-lg shadow-md">
+                 <h3 class="text-lg font-semibold mb-2 text-center">Power Balance</h3>
+                <div class="chart-container">
+                    <canvas id="powerChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Simulation Constants (mirroring Python backend) ---
+        const NOMINAL_POWER = 3000.0; // MWth
+        const NOMINAL_TURBINE_SPEED_RPM = 1800.0;
+        const MAX_TURBINE_SPEED_RPM = NOMINAL_TURBINE_SPEED_RPM * 1.2; // ~2160 RPM
+        const NOMINAL_GRID_FREQ = 60.0; // Hz
+        const MAX_FREQ_DEVIATION_HZ = 0.5; // Hz
+        const MAX_FUEL_TEMP = 2800.0; // °C
+
+        // --- Chart Initialization ---
+        let charts = {}; // Object to hold chart instances
+        let simulationData = { // Structure to hold data for charts
+            time: [],
+            reactor_power_mw: [],
+            fuel_temp_c: [],
+            coolant_temp_c: [],
+            turbine_speed_rpm: [],
+            valve_position: [],
+            mech_power_mw: [],
+            grid_freq_hz: [],
+            freq_deviation_hz: [],
+            electrical_load_pu: [],
+        };
+
+        // Chart configuration helper function
+        function createChartConfig(title, yAxesConfig) {
+            return {
+                type: 'line',
+                data: { labels: [], datasets: [] }, // Initial empty data
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 }, // Disable animation for performance
+                    hover: { mode: 'index', intersect: false },
+                    scales: {
+                        x: {
+                            type: 'linear', // Use linear scale for time
+                            title: { display: true, text: 'Time (s)' },
+                            ticks: { maxTicksLimit: 10 } // Limit ticks for clarity
+                        },
+                        ...yAxesConfig // Spread Y-axis configurations
+                    },
+                    plugins: {
+                        legend: { position: 'bottom' },
+                        title: { display: false }, // Title is above chart in HTML
+                        annotation: { // Plugin for limit lines
+                            annotations: {} // Annotations added dynamically
+                        }
+                    },
+                    elements: {
+                        point: { radius: 0 } // Hide points for large datasets
+                    }
+                }
+            };
+        }
+
+        // Initialize Charts
+        function initializeCharts() {
+            // Reactor Chart (Power & Temps)
+            const reactorCtx = document.getElementById('reactorChart').getContext('2d');
+            charts.reactor = new Chart(reactorCtx, createChartConfig('Reactor Dynamics', {
+                y_power: {
+                    type: 'linear', position: 'left',
+                    title: { display: true, text: 'Power (MWth)' },
+                    grid: { drawOnChartArea: true } // Main grid lines
+                },
+                y_temp: {
+                    type: 'linear', position: 'right',
+                    title: { display: true, text: 'Temperature (°C)' },
+                    grid: { drawOnChartArea: false } // No grid lines for secondary axis
+                }
+            }));
+            charts.reactor.options.plugins.annotation.annotations = {
+                fuelTempLimit: {
+                    type: 'line',
+                    yScaleID: 'y_temp',
+                    yMin: MAX_FUEL_TEMP,
+                    yMax: MAX_FUEL_TEMP,
+                    borderColor: 'rgba(255, 99, 132, 0.8)',
+                    borderWidth: 1,
+                    borderDash: [6, 6],
+                    label: { content: `Max Fuel ${MAX_FUEL_TEMP}°C`, display: true, position: 'start', yAdjust: -5, backgroundColor: 'rgba(255, 99, 132, 0.5)', color:'white', font: {size: 9}}
+                }
+            };
+            charts.reactor.data.datasets.push(
+                { label: 'Reactor Power', data: [], borderColor: 'rgb(54, 162, 235)', tension: 0.1, yAxisID: 'y_power', borderWidth: 2 },
+                { label: 'Fuel Temp', data: [], borderColor: 'rgb(255, 159, 64)', tension: 0.1, yAxisID: 'y_temp', borderWidth: 1.5 },
+                { label: 'Coolant Temp', data: [], borderColor: 'rgb(153, 102, 255)', tension: 0.1, yAxisID: 'y_temp', borderWidth: 1.5, borderDash: [5, 5] }
+            );
+
+            // Turbine Chart (Speed & Valve)
+            const turbineCtx = document.getElementById('turbineChart').getContext('2d');
+            charts.turbine = new Chart(turbineCtx, createChartConfig('Turbine Control', {
+                y_speed: {
+                    type: 'linear', position: 'left',
+                    title: { display: true, text: 'Speed (RPM)' },
+                    suggestedMin: NOMINAL_TURBINE_SPEED_RPM * 0.95, // Adjust y-axis range
+                    suggestedMax: NOMINAL_TURBINE_SPEED_RPM * 1.05,
+                },
+                y_valve: {
+                    type: 'linear', position: 'right',
+                    title: { display: true, text: 'Valve Pos (%)' },
+                    min: 0, max: 105, // Valve pos 0-100%
+                    grid: { drawOnChartArea: false }
+                }
+            }));
+            charts.turbine.options.plugins.annotation.annotations = {
+                 nominalSpeed: { type: 'line', yScaleID: 'y_speed', yMin: NOMINAL_TURBINE_SPEED_RPM, yMax: NOMINAL_TURBINE_SPEED_RPM, borderColor: 'rgba(75, 192, 192, 0.5)', borderWidth: 1, borderDash: [6, 6], label: { content: 'Nominal', display: true, position: 'start', yAdjust: -5, backgroundColor: 'rgba(75, 192, 192, 0.3)', color:'black', font: {size: 9}} },
+                 maxSpeed: { type: 'line', yScaleID: 'y_speed', yMin: MAX_TURBINE_SPEED_RPM, yMax: MAX_TURBINE_SPEED_RPM, borderColor: 'rgba(255, 99, 132, 0.8)', borderWidth: 1, borderDash: [6, 6], label: { content: `Max ${MAX_TURBINE_SPEED_RPM} RPM`, display: true, position: 'start', yAdjust: -15, backgroundColor: 'rgba(255, 99, 132, 0.5)', color:'white', font: {size: 9}} }
+            };
+            charts.turbine.data.datasets.push(
+                { label: 'Turbine Speed', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.1, yAxisID: 'y_speed', borderWidth: 2 },
+                { label: 'Valve Position', data: [], borderColor: 'rgb(255, 99, 132)', tension: 0.1, yAxisID: 'y_valve', borderWidth: 1.5, borderDash: [5, 5] }
+            );
+
+            // Grid Chart (Frequency & Deviation)
+            const gridCtx = document.getElementById('gridChart').getContext('2d');
+            charts.grid = new Chart(gridCtx, createChartConfig('Grid Stability', {
+                y_freq: {
+                    type: 'linear', position: 'left',
+                    title: { display: true, text: 'Frequency (Hz)' },
+                    suggestedMin: NOMINAL_GRID_FREQ - MAX_FREQ_DEVIATION_HZ * 1.5,
+                    suggestedMax: NOMINAL_GRID_FREQ + MAX_FREQ_DEVIATION_HZ * 1.5,
+                },
+                 y_dev: {
+                    type: 'linear', position: 'right',
+                    title: { display: true, text: 'Deviation (Hz)' },
+                    suggestedMin: -MAX_FREQ_DEVIATION_HZ * 1.5,
+                    suggestedMax: MAX_FREQ_DEVIATION_HZ * 1.5,
+                    grid: { drawOnChartArea: false }
+                }
+            }));
+             charts.grid.options.plugins.annotation.annotations = {
+                 nominalFreq: { type: 'line', yScaleID: 'y_freq', yMin: NOMINAL_GRID_FREQ, yMax: NOMINAL_GRID_FREQ, borderColor: 'rgba(75, 192, 192, 0.5)', borderWidth: 1, borderDash: [6, 6], label: { content: 'Nominal', display: true, position: 'start', yAdjust: -5, backgroundColor: 'rgba(75, 192, 192, 0.3)', color:'black', font: {size: 9}} },
+                 maxFreqDev: { type: 'line', yScaleID: 'y_freq', yMin: NOMINAL_GRID_FREQ + MAX_FREQ_DEVIATION_HZ, yMax: NOMINAL_GRID_FREQ + MAX_FREQ_DEVIATION_HZ, borderColor: 'rgba(255, 99, 132, 0.8)', borderWidth: 1, borderDash: [6, 6], label: { content: `+${MAX_FREQ_DEVIATION_HZ} Hz`, display: true, position: 'start', yAdjust: -15, backgroundColor: 'rgba(255, 99, 132, 0.5)', color:'white', font: {size: 9}} },
+                 minFreqDev: { type: 'line', yScaleID: 'y_freq', yMin: NOMINAL_GRID_FREQ - MAX_FREQ_DEVIATION_HZ, yMax: NOMINAL_GRID_FREQ - MAX_FREQ_DEVIATION_HZ, borderColor: 'rgba(255, 99, 132, 0.8)', borderWidth: 1, borderDash: [6, 6], label: { content: `-${MAX_FREQ_DEVIATION_HZ} Hz`, display: true, position: 'start', yAdjust: 5, backgroundColor: 'rgba(255, 99, 132, 0.5)', color:'white', font: {size: 9}} }
+            };
+            charts.grid.data.datasets.push(
+                { label: 'Grid Frequency', data: [], borderColor: 'rgb(255, 99, 132)', tension: 0.1, yAxisID: 'y_freq', borderWidth: 2 },
+                 { label: 'Frequency Deviation', data: [], borderColor: 'rgb(54, 162, 235)', tension: 0.1, yAxisID: 'y_dev', borderWidth: 1.5, borderDash: [5, 5] }
+            );
+
+             // Power Chart (Mechanical vs Electrical Load)
+            const powerCtx = document.getElementById('powerChart').getContext('2d');
+            charts.power = new Chart(powerCtx, createChartConfig('Power Balance', {
+                y: { // Single Y-axis for power
+                    type: 'linear', position: 'left',
+                    title: { display: true, text: 'Power (MW)' }
+                }
+            }));
+            charts.power.data.datasets.push(
+                { label: 'Mechanical Power', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.1, borderWidth: 2 },
+                { label: 'Electrical Load', data: [], borderColor: 'rgb(255, 159, 64)', tension: 0.1, borderWidth: 1.5, borderDash: [5, 5] }
+            );
+
+            // Update all charts initially
+            Object.values(charts).forEach(chart => chart.update());
+        }
+
+        // --- Data Update Functions ---
+
+        // Function to update the dashboard with new data point
+        function updateDashboard(newDataPoint) {
+            // Update numerical displays
+            document.getElementById('reactorPower').textContent = newDataPoint.reactor_power_mw.toFixed(1);
+            document.getElementById('fuelTemp').textContent = newDataPoint.fuel_temp_c.toFixed(1);
+            document.getElementById('coolantTemp').textContent = newDataPoint.coolant_temp_c.toFixed(1);
+            document.getElementById('turbineSpeed').textContent = newDataPoint.turbine_speed_rpm.toFixed(0);
+            document.getElementById('valvePosition').textContent = (newDataPoint.valve_position * 100).toFixed(1); // Display as %
+            document.getElementById('mechPower').textContent = newDataPoint.mech_power_mw.toFixed(1);
+            document.getElementById('gridFrequency').textContent = newDataPoint.grid_freq_hz.toFixed(3);
+            document.getElementById('freqDeviation').textContent = newDataPoint.freq_deviation_hz.toFixed(3);
+            document.getElementById('elecLoad').textContent = (newDataPoint.electrical_load_pu * 100).toFixed(1); // Display as %
+            document.getElementById('simTimeDisplay').textContent = `Time: ${newDataPoint.time.toFixed(2)} s`;
+
+            // Append data to chart data arrays
+            simulationData.time.push(newDataPoint.time);
+            simulationData.reactor_power_mw.push(newDataPoint.reactor_power_mw);
+            simulationData.fuel_temp_c.push(newDataPoint.fuel_temp_c);
+            simulationData.coolant_temp_c.push(newDataPoint.coolant_temp_c);
+            simulationData.turbine_speed_rpm.push(newDataPoint.turbine_speed_rpm);
+            simulationData.valve_position.push(newDataPoint.valve_position * 100); // Scale to % for chart
+            simulationData.mech_power_mw.push(newDataPoint.mech_power_mw);
+            simulationData.grid_freq_hz.push(newDataPoint.grid_freq_hz);
+            simulationData.freq_deviation_hz.push(newDataPoint.freq_deviation_hz);
+            simulationData.electrical_load_pu.push(newDataPoint.electrical_load_pu * NOMINAL_POWER); // Convert to MW for chart
+
+            // Limit data length to avoid browser slowdown (e.g., keep last 1000 points)
+            const maxDataPoints = 1000;
+            if (simulationData.time.length > maxDataPoints) {
+                Object.keys(simulationData).forEach(key => {
+                    simulationData[key].shift(); // Remove oldest data point
+                });
+            }
+
+            // Update chart data
+            charts.reactor.data.labels = simulationData.time;
+            charts.reactor.data.datasets[0].data = simulationData.reactor_power_mw;
+            charts.reactor.data.datasets[1].data = simulationData.fuel_temp_c;
+            charts.reactor.data.datasets[2].data = simulationData.coolant_temp_c;
+
+            charts.turbine.data.labels = simulationData.time;
+            charts.turbine.data.datasets[0].data = simulationData.turbine_speed_rpm;
+            charts.turbine.data.datasets[1].data = simulationData.valve_position;
+
+            charts.grid.data.labels = simulationData.time;
+            charts.grid.data.datasets[0].data = simulationData.grid_freq_hz;
+            charts.grid.data.datasets[1].data = simulationData.freq_deviation_hz;
+
+            charts.power.data.labels = simulationData.time;
+            charts.power.data.datasets[0].data = simulationData.mech_power_mw;
+            charts.power.data.datasets[1].data = simulationData.electrical_load_pu; // Already in MW
+
+            // Update charts efficiently
+            Object.values(charts).forEach(chart => chart.update('none')); // 'none' prevents animation flicker
+        }
+
+        // Function to clear all simulation data and charts
+        function resetSimulationDisplay() {
+             // Clear data arrays
+            Object.keys(simulationData).forEach(key => {
+                simulationData[key] = [];
+            });
+             // Clear charts
+             Object.values(charts).forEach(chart => {
+                chart.data.labels = [];
+                chart.data.datasets.forEach(dataset => {
+                    dataset.data = [];
+                });
+                chart.update();
+            });
+            // Reset numerical displays
+            updateDashboard({ // Use initial placeholder values
+                time: 0, reactor_power_mw: 0, fuel_temp_c: 0, coolant_temp_c: 0,
+                turbine_speed_rpm: 0, valve_position: 0, mech_power_mw: 0,
+                grid_freq_hz: 0, freq_deviation_hz: 0, electrical_load_pu: 0
+            });
+             document.getElementById('simTimeDisplay').textContent = `Time: 0.00 s`;
+             document.getElementById('simStatus').textContent = 'Status: Idle';
+        }
+
+
+        // --- Simulation Control (Placeholder) ---
+        let simulationInterval = null;
+        let currentSimTime = 0;
+        const SIM_UPDATE_INTERVAL_MS = 100; // Update frontend every 100ms
+        const SIM_TIME_PER_UPDATE = 0.1; // Simulate 0.1s of plant time per update
+
+        // Placeholder function to generate fake data for demonstration
+        function generateFakeData(time) {
+            // Simulate a transient (e.g., frequency dip and recovery)
+            const freqDipTime = 5;
+            const recoveryTime = 15;
+            let freq = NOMINAL_GRID_FREQ;
+            let dev = 0;
+            if (time > freqDipTime && time < freqDipTime + recoveryTime) {
+                const phase = (time - freqDipTime) / recoveryTime;
+                dev = -MAX_FREQ_DEVIATION_HZ * Math.sin(phase * Math.PI) * 0.8; // Simulate a dip
+            }
+            freq += dev;
+
+            // Simulate turbine response
+            const speed = NOMINAL_TURBINE_SPEED_RPM + dev * 30; // Speed reacts to freq deviation
+            const valve = 0.9 + dev * 0.1; // Valve adjusts slightly
+
+             // Simulate reactor power fluctuation
+            const power = NOMINAL_POWER * 0.9 * (1 + Math.sin(time / 10) * 0.01); // Small power oscillation
+            const fuelTemp = 800 + Math.sin(time / 10) * 5;
+            const coolantTemp = 300 + Math.sin(time / 10) * 2;
+
+            return {
+                time: time,
+                reactor_power_mw: power,
+                fuel_temp_c: fuelTemp,
+                coolant_temp_c: coolantTemp,
+                turbine_speed_rpm: speed,
+                valve_position: Math.max(0, Math.min(1, valve)), // Clamp valve pos
+                mech_power_mw: power * 0.95 * (speed / NOMINAL_TURBINE_SPEED_RPM), // Mech power depends on reactor & speed
+                grid_freq_hz: freq,
+                freq_deviation_hz: dev,
+                electrical_load_pu: 0.9 // Assume constant load for demo
+            };
+        }
+
+        function startSimulation() {
+            if (simulationInterval) return; // Already running
+
+            resetSimulationDisplay(); // Clear previous run
+            currentSimTime = 0;
+            document.getElementById('simStatus').textContent = 'Status: Running';
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+            document.getElementById('startSimButton').disabled = true;
+            document.getElementById('stopSimButton').disabled = false;
+
+            simulationInterval = setInterval(() => {
+                // --- Replace this section with actual data fetching from Python backend ---
+                // In a real application, you would:
+                // 1. Send a request to the backend to run a simulation step (or get latest data).
+                // 2. Receive the updated state data (like the structure below).
+                // 3. Call updateDashboard with the received data.
+
+                // Using placeholder data generator for now:
+                const newData = generateFakeData(currentSimTime);
+                updateDashboard(newData);
+                currentSimTime += SIM_TIME_PER_UPDATE;
+                // --- End of placeholder section ---
+
+                // Example: Stop simulation after 60 seconds
+                if (currentSimTime >= 60) {
+                    stopSimulation();
+                    document.getElementById('simStatus').textContent = 'Status: Finished';
+                }
+
+            }, SIM_UPDATE_INTERVAL_MS);
+        }
+
+        function stopSimulation() {
+            if (!simulationInterval) return; // Not running
+
+            clearInterval(simulationInterval);
+            simulationInterval = null;
+            document.getElementById('simStatus').textContent = 'Status: Stopped';
+            document.getElementById('loadingIndicator').classList.add('hidden');
+            document.getElementById('startSimButton').disabled = false;
+            document.getElementById('stopSimButton').disabled = true;
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('startSimButton').addEventListener('click', startSimulation);
+        document.getElementById('stopSimButton').addEventListener('click', stopSimulation);
+
+        // --- Initialization ---
+        window.onload = () => {
+            initializeCharts();
+            resetSimulationDisplay(); // Initialize displays with zeros/defaults
+             console.log("PWR Simulation Dashboard Initialized.");
+        };
+
+    </script>
+
+</body>
+</html>
